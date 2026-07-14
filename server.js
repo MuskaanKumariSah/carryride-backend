@@ -24,7 +24,7 @@ const io = new Server(server, {
 const socketManager = require("./socket/socket");
 socketManager.init(io);
 
-app.use(cors());
+app.use(cors({ origin: 'https://starlit-selkie-65b600.netlify.app' }));
 app.use(express.json());
 
 app.get("/", (req, res) => {
