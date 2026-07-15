@@ -3,13 +3,11 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { sendOTPEmail } = require("../utils/mailer");
 
-function generateOTP() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-}
+const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const registerUser = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, email, password, phone } = req.body;
 
         if (!name || !email || !password) {
             return res.status(400).json({
@@ -18,16 +16,15 @@ const registerUser = async (req, res) => {
         }
 
         db.get(
-    "SELECT * FROM users WHERE email = ?",
-    [email],
-    async (err, user) => {
+            "SELECT * FROM users WHERE email = ?",
+            [email],
+            async (err, user) => {
 
-        if (err) {
-            console.error("DB SELECT ERROR:", err);
-            return res.status(500).json({
-                message: "Database error"
-            });
-        }
+                if (err) {
+                    return res.status(500).json({
+                        message: "Database error"
+                    });
+                }
 
                 if (user) {
                     return res.status(400).json({
@@ -38,15 +35,13 @@ const registerUser = async (req, res) => {
                 const hashedPassword =
                     await bcrypt.hash(password, 10);
 
-                const otp = generateOTP();
-                const otpExpires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
+                // OTP email disabled for now (auto-verify) — see note in mailer.js
                 db.run(
                     `INSERT INTO users
-                    (name,email,password,is_verified,otp,otp_expires)
-                    VALUES (?,?,?,0,?,?)`,
-                    [name, email, hashedPassword, otp, otpExpires],
-                    async function (err) {
+                    (name, email, password, is_verified)
+                    VALUES (?, ?, ?, 1)`,
+                    [name, email, hashedPassword],
+                    function (err) {
 
                         if (err) {
                             return res.status(500).json({
@@ -54,14 +49,8 @@ const registerUser = async (req, res) => {
                             });
                         }
 
-                        try {
-                            await sendOTPEmail(email, otp);
-                        } catch (mailErr) {
-                            console.error("Failed to send OTP email:", mailErr);
-                        }
-
                         res.status(201).json({
-                            message: "User registered successfully. OTP sent to email.",
+                            message: "User registered successfully.",
                             userId: this.lastID
                         });
                     }
@@ -81,7 +70,9 @@ const verifyOtp = (req, res) => {
     const { email, otp } = req.body;
 
     if (!email || !otp) {
-        return res.status(400).json({ message: "Email and OTP required" });
+        return res.status(400).json({
+            message: "Email and OTP are required"
+        });
     }
 
     db.get(
@@ -90,48 +81,60 @@ const verifyOtp = (req, res) => {
         (err, user) => {
 
             if (err) {
-                return res.status(500).json({ message: "Database error" });
+                return res.status(500).json({
+                    message: "Database error"
+                });
             }
 
             if (!user) {
-                return res.status(404).json({ message: "User not found" });
+                return res.status(404).json({
+                    message: "User not found"
+                });
             }
 
             if (user.is_verified) {
-                return res.status(400).json({ message: "Email already verified" });
+                return res.status(400).json({
+                    message: "Email already verified"
+                });
             }
 
             if (user.otp !== otp) {
-                return res.status(400).json({ message: "Invalid OTP" });
+                return res.status(400).json({
+                    message: "Invalid OTP"
+                });
             }
 
             if (new Date(user.otp_expires) < new Date()) {
-                return res.status(400).json({ message: "OTP has expired" });
+                return res.status(400).json({
+                    message: "OTP has expired"
+                });
             }
 
             db.run(
-                `UPDATE users SET is_verified = 1, otp = NULL, otp_expires = NULL WHERE email = ?`,
+                `UPDATE users
+                 SET is_verified = 1, otp = NULL, otp_expires = NULL
+                 WHERE email = ?`,
                 [email],
-                function(err) {
+                (err) => {
 
                     if (err) {
-                        return res.status(500).json({ message: "Failed to verify" });
+                        return res.status(500).json({
+                            message: "Failed to verify OTP"
+                        });
                     }
 
-                    res.status(200).json({ message: "Email verified successfully" });
+                    res.json({
+                        message: "Email verified successfully"
+                    });
                 }
             );
         }
     );
 };
 
-const resendOtp = async (req, res) => {
+const resendOtp = (req, res) => {
 
     const { email } = req.body;
-
-    if (!email) {
-        return res.status(400).json({ message: "Email required" });
-    }
 
     db.get(
         "SELECT * FROM users WHERE email = ?",
@@ -154,9 +157,9 @@ const resendOtp = async (req, res) => {
             const otpExpires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
             db.run(
-                `UPDATE users SET otp = ?, otp_expires = ? WHERE email = ?`,
+                "UPDATE users SET otp = ?, otp_expires = ? WHERE email = ?",
                 [otp, otpExpires, email],
-                async function(err) {
+                async (err) => {
 
                     if (err) {
                         return res.status(500).json({ message: "Failed to resend OTP" });
@@ -165,11 +168,11 @@ const resendOtp = async (req, res) => {
                     try {
                         await sendOTPEmail(email, otp);
                     } catch (mailErr) {
-                        console.error("Failed to send OTP email:", mailErr);
+                        console.log("OTP RESEND EMAIL ERROR:", mailErr);
                         return res.status(500).json({ message: "Failed to send OTP email" });
                     }
 
-                    res.status(200).json({ message: "OTP resent successfully" });
+                    res.json({ message: "OTP resent successfully" });
                 }
             );
         }
@@ -212,14 +215,6 @@ const loginUser = (req, res) => {
             if (!match) {
                 return res.status(401).json({
                     message: "Invalid password"
-                });
-            }
-
-            if (!user.is_verified) {
-                return res.status(403).json({
-                    message: "Please verify your email before logging in",
-                    notVerified: true,
-                    email: user.email
                 });
             }
 
@@ -286,9 +281,9 @@ const getUserLuggageHistory = (req, res) => {
 
 module.exports = {
     registerUser,
-    loginUser,
     verifyOtp,
     resendOtp,
+    loginUser,
     getUserRideHistory,
     getUserLuggageHistory
 };
