@@ -153,28 +153,25 @@ const resendOtp = (req, res) => {
                 return res.status(400).json({ message: "Email already verified" });
             }
 
-            const otp = generateOTP();
-            const otpExpires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
             db.run(
-                "UPDATE users SET otp = ?, otp_expires = ? WHERE email = ?",
-                [otp, otpExpires, email],
-                async (err) => {
+                    `INSERT INTO users
+                    (name,email,password,is_verified)
+                    VALUES (?,?,?,1)`,
+                    [name, email, hashedPassword],
+                    function (err) {
 
-                    if (err) {
-                        return res.status(500).json({ message: "Failed to resend OTP" });
+                        if (err) {
+                            return res.status(500).json({
+                                message: "Failed to register user"
+                            });
+                        }
+
+                        res.status(201).json({
+                            message: "User registered successfully",
+                            userId: this.lastID
+                        });
                     }
-
-                    try {
-                        await sendOTPEmail(email, otp);
-                    } catch (mailErr) {
-                        console.log("OTP RESEND EMAIL ERROR:", mailErr);
-                        return res.status(500).json({ message: "Failed to send OTP email" });
-                    }
-
-                    res.json({ message: "OTP resent successfully" });
-                }
-            );
+                );
         }
     );
 };
